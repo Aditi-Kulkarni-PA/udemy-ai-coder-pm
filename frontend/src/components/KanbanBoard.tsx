@@ -209,74 +209,68 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
       <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
       <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
 
-      <main className="relative mx-auto flex min-h-screen max-w-[1500px] flex-col gap-8 px-6 pb-16 pt-10">
-        <header className="flex flex-col gap-5 rounded-[32px] border border-[var(--stroke)] bg-white/80 p-6 shadow-[var(--shadow)] backdrop-blur">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+      <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-6 pb-6 pt-5">
+        {/* Compact single-row header */}
+        <header className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--stroke)] bg-white/80 px-5 py-3 shadow-[var(--shadow)] backdrop-blur">
+          <div className="flex items-center gap-3">
+            {/* Logo mark */}
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--navy-dark)]">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="white" className="h-4 w-4">
+                <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2A1.5 1.5 0 0 1 6 3.5v9A1.5 1.5 0 0 1 4.5 14h-2A1.5 1.5 0 0 1 1 12.5v-9ZM7.5 2A1.5 1.5 0 0 0 6 3.5v5A1.5 1.5 0 0 0 7.5 10h6A1.5 1.5 0 0 0 15 8.5v-5A1.5 1.5 0 0 0 13.5 2h-6Z" />
+              </svg>
+            </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-[var(--gray-text)]">
-                Single Board Kanban
-              </p>
-              <h1 className="mt-2 font-display text-4xl font-semibold text-[var(--navy-dark)]">
+              <h1 className="font-display text-lg font-semibold leading-none text-[var(--navy-dark)]">
                 Kanban Studio
               </h1>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--gray-text)]">
-                Keep momentum visible. Rename columns, drag cards between stages,
-                and capture quick notes without getting buried in settings.
+              <p className="mt-0.5 text-xs text-[var(--gray-text)]">
+                Single Board Kanban · Zero clutter
               </p>
-            </div>
-            <div className="rounded-2xl border border-[var(--stroke)] bg-[var(--surface)] px-5 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--gray-text)]">
-                Focus
-              </p>
-              <p className="mt-2 text-lg font-semibold text-[var(--primary-blue)]">
-                One board. Five columns. Zero clutter.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAiOpen((v) => !v)}
-                  className="rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:brightness-110"
-                >
-                  {aiOpen ? "Hide AI" : "AI Assistant"}
-                </button>
-                {onLogout ? (
-                  <button
-                    type="button"
-                    onClick={onLogout}
-                    className="rounded-full border border-[var(--stroke)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--gray-text)] transition hover:text-[var(--navy-dark)]"
-                  >
-                    Log out
-                  </button>
-                ) : null}
-              </div>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {board.columns.map((column) => (
-              <div
-                key={column.id}
-                className="flex items-center gap-2 rounded-full border border-[var(--stroke)] px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-[var(--navy-dark)]"
+
+          <div className="flex items-center gap-2">
+            {syncError ? (
+              <p
+                role="alert"
+                className="rounded-lg border border-[var(--secondary-purple)] bg-[var(--secondary-purple)]/10 px-3 py-1.5 text-xs font-medium text-[var(--secondary-purple)]"
               >
-                <span className="h-2 w-2 rounded-full bg-[var(--accent-yellow)]" />
-                {column.title}
-              </div>
-            ))}
+                {syncError}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setAiOpen((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white transition hover:brightness-110 ${
+                aiOpen ? "bg-[var(--navy-dark)]" : "bg-[var(--secondary-purple)]"
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                <path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1Zm-.75 4.25a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5ZM8 10.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2Z" />
+              </svg>
+              {aiOpen ? "Hide AI" : "AI Assistant"}
+            </button>
+            {onLogout ? (
+              <button
+                type="button"
+                onClick={onLogout}
+                title="Log out"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--stroke)] text-[var(--gray-text)] transition hover:border-[var(--navy-dark)] hover:text-[var(--navy-dark)]"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                  <path fillRule="evenodd" d="M2 4.75A2.75 2.75 0 0 1 4.75 2h3a2.75 2.75 0 0 1 2.75 2.75v.5a.75.75 0 0 1-1.5 0v-.5c0-.69-.56-1.25-1.25-1.25h-3c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h3c.69 0 1.25-.56 1.25-1.25v-.5a.75.75 0 0 1 1.5 0v.5A2.75 2.75 0 0 1 7.75 14h-3A2.75 2.75 0 0 1 2 11.25v-6.5Zm9.47.47a.75.75 0 0 1 1.06 0l2.25 2.25a.75.75 0 0 1 0 1.06l-2.25 2.25a.75.75 0 1 1-1.06-1.06l.97-.97H6.75a.75.75 0 0 1 0-1.5h5.69l-.97-.97a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         </header>
 
-        {syncError ? (
-          <p
-            role="alert"
-            className="rounded-xl border border-[var(--secondary-purple)] bg-[var(--secondary-purple)]/10 px-4 py-3 text-sm font-medium text-[var(--secondary-purple)]"
-          >
-            {syncError}
-          </p>
-        ) : null}
-
         {isLoading ? (
-          <p className="text-sm font-medium text-[var(--gray-text)]">Loading board...</p>
+          <div className="flex flex-1 items-center justify-center py-20">
+            <p className="text-sm font-medium text-[var(--gray-text)]">Loading board...</p>
+          </div>
         ) : (
-          <div className={`grid gap-6 ${aiOpen ? "xl:grid-cols-[minmax(0,1fr)_272px]" : "grid-cols-1"}`}>
+          <div className={`grid flex-1 gap-4 ${aiOpen ? "xl:grid-cols-[minmax(0,1fr)_300px]" : "grid-cols-1"}`}>
             <DndContext
               sensors={sensors}
               collisionDetection={collisionDetection}
@@ -284,11 +278,12 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
             >
-              <section className="grid gap-4 lg:grid-cols-5">
-                {board.columns.map((column) => (
+              <section className="grid gap-3 lg:grid-cols-5">
+                {board.columns.map((column, index) => (
                   <KanbanColumn
                     key={column.id}
                     column={column}
+                    columnIndex={index}
                     cards={column.cardIds.map((cardId) => board.cards[cardId])}
                     onRename={handleRenameColumn}
                     onAddCard={handleAddCard}
