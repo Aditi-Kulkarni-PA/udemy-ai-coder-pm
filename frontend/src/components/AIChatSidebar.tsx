@@ -8,36 +8,43 @@ const MAX_HISTORY = 10;
 
 type AIChatSidebarProps = {
   username: string;
+  boardId?: number;
   onBoardUpdate: (board: BoardData) => void;
   onClose?: () => void;
 };
 
-export const AIChatSidebar = ({ username, onBoardUpdate, onClose }: AIChatSidebarProps) => {
+export const AIChatSidebar = ({ username, boardId, onBoardUpdate, onClose }: AIChatSidebarProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Ref to the scrollable messages container (not the end sentinel)
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  const storageKey = boardId != null ? `pm-chat-${username}-${boardId}` : `pm-chat-${username}`;
 
   useEffect(() => {
-    const stored = sessionStorage.getItem(`pm-chat-${username}`);
+    const stored = sessionStorage.getItem(storageKey);
     if (stored) {
       try {
         setMessages(JSON.parse(stored) as ChatMessage[]);
       } catch {
         // Ignore corrupt storage
       }
+    } else {
+      setMessages([]);
     }
-  }, [username]);
+  }, [storageKey]);
 
   useEffect(() => {
-    sessionStorage.setItem(`pm-chat-${username}`, JSON.stringify(messages));
-  }, [messages, username]);
+    sessionStorage.setItem(storageKey, JSON.stringify(messages));
+  }, [messages, storageKey]);
 
+  // Scroll the messages CONTAINER (not the window) when messages change
   useEffect(() => {
-    const el = messagesEndRef.current;
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({ behavior: "smooth" });
+    const el = messagesContainerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
 
@@ -53,7 +60,7 @@ export const AIChatSidebar = ({ username, onBoardUpdate, onClose }: AIChatSideba
     setIsSending(true);
 
     try {
-      const result = await sendAIChat(username, question, prevMessages.slice(-MAX_HISTORY));
+      const result = await sendAIChat(username, question, prevMessages.slice(-MAX_HISTORY), boardId);
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: result.assistantMessage },
@@ -71,13 +78,13 @@ export const AIChatSidebar = ({ username, onBoardUpdate, onClose }: AIChatSideba
   };
 
   return (
-    <aside className="flex flex-col rounded-2xl border border-[var(--stroke)] bg-white/90 shadow-[var(--shadow)] backdrop-blur overflow-hidden" style={{ minHeight: "calc(100vh - 120px)" }}>
+    <aside className="flex flex-col overflow-hidden rounded-2xl border border-[var(--stroke)] bg-white/90 shadow-[var(--shadow)] backdrop-blur">
       {/* Purple top accent */}
       <div className="h-1 w-full flex-shrink-0 bg-[var(--secondary-purple)]" />
 
-      <div className="flex flex-col flex-1 p-4" style={{ minHeight: 0 }}>
+      <div className="flex min-h-0 flex-1 flex-col p-4">
         {/* Header */}
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-shrink-0 items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--secondary-purple)]">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="white" className="h-4 w-4">
@@ -103,8 +110,11 @@ export const AIChatSidebar = ({ username, onBoardUpdate, onClose }: AIChatSideba
           ) : null}
         </div>
 
-        {/* Message list */}
-        <div className="mt-3 flex-1 overflow-y-auto rounded-xl border border-[var(--stroke)] bg-[var(--surface)] p-2" style={{ minHeight: 0 }}>
+        {/* Message list — the container itself scrolls, not the window */}
+        <div
+          ref={messagesContainerRef}
+          className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--stroke)] bg-[var(--surface)] p-2"
+        >
           {messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-8 w-8 text-[var(--stroke)]">
@@ -131,15 +141,14 @@ export const AIChatSidebar = ({ username, onBoardUpdate, onClose }: AIChatSideba
                   <p className="whitespace-pre-wrap leading-5 text-[var(--navy-dark)]">{message.content}</p>
                 </div>
               ))}
-              <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
-        {error ? <p className="mt-2 text-xs text-red-500">{error}</p> : null}
+        {error ? <p className="mt-2 flex-shrink-0 text-xs text-red-500">{error}</p> : null}
 
         {/* Input form */}
-        <form onSubmit={handleSubmit} className="mt-3 space-y-2">
+        <form onSubmit={(e) => void handleSubmit(e)} className="mt-3 flex-shrink-0 space-y-2">
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}

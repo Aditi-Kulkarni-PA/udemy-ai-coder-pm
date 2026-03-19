@@ -5,13 +5,19 @@ import { KanbanBoard } from "@/components/KanbanBoard";
 import { initialData } from "@/lib/kanban";
 
 vi.mock("@/lib/api", () => ({
-  fetchBoard: vi.fn(async () => initialData),
-  saveBoard: vi.fn(async () => undefined),
+  fetchBoards: vi.fn(async () => [{ id: 1, name: "Kanban Board", created_at: "" }]),
+  fetchBoardData: vi.fn(async () => initialData),
+  saveBoardData: vi.fn(async () => undefined),
+  createBoard: vi.fn(async () => 2),
+  deleteBoard: vi.fn(async () => undefined),
   sendAIChat: vi.fn(async () => ({
     assistantMessage: "Done",
     boardUpdated: false,
     board: initialData,
   })),
+  // Keep legacy exports intact
+  fetchBoard: vi.fn(async () => initialData),
+  saveBoard: vi.fn(async () => undefined),
 }));
 
 const getFirstColumn = () => screen.getAllByTestId(/column-/i)[0];
@@ -36,9 +42,7 @@ describe("KanbanBoard", () => {
     render(<KanbanBoard username="user" />);
     await screen.findAllByTestId(/column-/i);
     const column = getFirstColumn();
-    const addButton = within(column).getByRole("button", {
-      name: /add a card/i,
-    });
+    const addButton = within(column).getByRole("button", { name: /add a card/i });
     await userEvent.click(addButton);
 
     const titleInput = within(column).getByPlaceholderText(/card title/i);
@@ -47,14 +51,16 @@ describe("KanbanBoard", () => {
     await userEvent.type(detailsInput, "Notes");
 
     await userEvent.click(within(column).getByRole("button", { name: /add card/i }));
-
     expect(within(column).getByText("New card")).toBeInTheDocument();
 
-    const deleteButton = within(column).getByRole("button", {
-      name: /delete new card/i,
-    });
+    const deleteButton = within(column).getByRole("button", { name: /delete new card/i });
     await userEvent.click(deleteButton);
-
     expect(within(column).queryByText("New card")).not.toBeInTheDocument();
+  });
+
+  it("shows board selector", async () => {
+    render(<KanbanBoard username="user" />);
+    // BoardSelector renders the board name as a button
+    expect(await screen.findByRole("button", { name: /kanban board/i })).toBeInTheDocument();
   });
 });

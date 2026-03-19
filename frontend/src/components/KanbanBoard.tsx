@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -16,9 +16,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { AIChatSidebar } from "@/components/AIChatSidebar";
+import { BoardSelector } from "@/components/BoardSelector";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { fetchBoard, saveBoard } from "@/lib/api";
+import { fetchBoardData, saveBoardData } from "@/lib/api";
 import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
 
 type KanbanBoardProps = {
@@ -27,47 +28,36 @@ type KanbanBoardProps = {
 };
 
 export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
+  const [activeBoardId, setActiveBoardId] = useState<number | null>(null);
   const [board, setBoard] = useState<BoardData>(() => initialData);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [overCardId, setOverCardId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [aiOpen, setAiOpen] = useState(false);
+
+  // Track in-flight save to avoid race conditions
+  const saveAbortRef = useRef<AbortController | null>(null);
 
   const columnIds = useMemo(
     () => new Set(board.columns.map((c) => c.id)),
     [board.columns]
   );
 
-  // Three-tier collision strategy:
-  // 1. Pointer directly on a card → use that card (exact insertion)
-  // 2. Pointer in the gap between cards → closestCenter restricted to cards
-  //    in the SAME column the pointer is over (avoids column center winning)
-  // 3. Pointer over an empty column or outside all columns → column / rectIntersection
+  // Three-tier collision detection
   const collisionDetection: CollisionDetection = useCallback(
     (args) => {
       const pointerHits = pointerWithin(args);
-
-      // 1. Pointer is directly on a card
       const cardHit = pointerHits.find((h) => !columnIds.has(String(h.id)));
       if (cardHit) return [cardHit];
 
-      // 2. Identify the column the pointer is inside
       const columnHit = pointerHits.find((h) => columnIds.has(String(h.id)));
-      if (!columnHit) {
-        // Not over any column — fall back to rect intersection
-        return rectIntersection(args);
-      }
+      if (!columnHit) return rectIntersection(args);
 
-      // 3. Use closestCenter restricted to cards inside THIS column only.
-      //    This prevents the (tall) column's own center from winning over nearby cards.
       const column = board.columns.find((c) => c.id === String(columnHit.id));
       const cardIdsInColumn = new Set(column?.cardIds ?? []);
 
-      if (cardIdsInColumn.size === 0) {
-        // Empty column — drop onto the column itself (appends)
-        return [columnHit];
-      }
+      if (cardIdsInColumn.size === 0) return [columnHit];
 
       const cardCollisions = closestCenter({
         ...args,
@@ -81,21 +71,27 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
     [columnIds, board.columns]
   );
 
-  const persistBoard = (nextBoard: BoardData) => {
-    void saveBoard(username, nextBoard).catch(() => {
-      setSyncError("Could not sync board to backend.");
-    });
-  };
+  const persistBoard = useCallback(
+    (nextBoard: BoardData, boardId: number) => {
+      void saveBoardData(username, boardId, nextBoard).catch(() => {
+        setSyncError("Could not sync board to backend.");
+      });
+    },
+    [username]
+  );
 
+  // Load board data when activeBoardId changes
   useEffect(() => {
-    const controller = new AbortController();
+    if (activeBoardId === null) return;
 
-    const loadBoard = async () => {
-      setIsLoading(true);
-      setSyncError("");
+    const controller = new AbortController();
+    setIsLoading(true);
+    setSyncError("");
+
+    const load = async () => {
       try {
-        const remoteBoard = await fetchBoard(username, controller.signal);
-        setBoard(remoteBoard);
+        const remote = await fetchBoardData(username, activeBoardId, controller.signal);
+        setBoard(remote);
       } catch {
         if (!controller.signal.aborted) {
           setSyncError("Backend unavailable — board edits will not be saved.");
@@ -108,14 +104,12 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
       }
     };
 
-    void loadBoard();
+    void load();
     return () => controller.abort();
-  }, [username]);
+  }, [username, activeBoardId]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
 
   const cardsById = useMemo(() => board.cards, [board.cards]);
@@ -127,7 +121,6 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
 
   const handleDragOver = (event: DragOverEvent) => {
     const id = event.over?.id;
-    // Only track card IDs for the indicator — column IDs don't get a line
     setOverCardId(id && !columnIds.has(String(id)) ? String(id) : null);
   };
 
@@ -135,33 +128,32 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
     const { active, over } = event;
     setActiveCardId(null);
     setOverCardId(null);
-
-    if (!over || active.id === over.id) {
-      return;
-    }
+    if (!over || active.id === over.id || activeBoardId === null) return;
 
     const nextBoard = {
       ...board,
       columns: moveCard(board.columns, active.id as string, over.id as string),
     };
     setBoard(nextBoard);
-    persistBoard(nextBoard);
+    persistBoard(nextBoard, activeBoardId);
   };
 
   const handleRenameColumn = (columnId: string, title: string) => {
+    if (activeBoardId === null) return;
     setBoard((prev) => {
       const nextBoard = {
         ...prev,
-        columns: prev.columns.map((column) =>
-          column.id === columnId ? { ...column, title } : column
+        columns: prev.columns.map((col) =>
+          col.id === columnId ? { ...col, title } : col
         ),
       };
-      persistBoard(nextBoard);
+      persistBoard(nextBoard, activeBoardId);
       return nextBoard;
     });
   };
 
   const handleAddCard = (columnId: string, title: string, details: string) => {
+    if (activeBoardId === null) return;
     const id = createId("card");
     setBoard((prev) => {
       const nextBoard = {
@@ -170,34 +162,30 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
           ...prev.cards,
           [id]: { id, title, details: details || "No details yet." },
         },
-        columns: prev.columns.map((column) =>
-          column.id === columnId
-            ? { ...column, cardIds: [...column.cardIds, id] }
-            : column
+        columns: prev.columns.map((col) =>
+          col.id === columnId ? { ...col, cardIds: [...col.cardIds, id] } : col
         ),
       };
-      persistBoard(nextBoard);
+      persistBoard(nextBoard, activeBoardId);
       return nextBoard;
     });
   };
 
   const handleDeleteCard = (columnId: string, cardId: string) => {
+    if (activeBoardId === null) return;
     setBoard((prev) => {
       const nextBoard = {
         ...prev,
         cards: Object.fromEntries(
           Object.entries(prev.cards).filter(([id]) => id !== cardId)
         ),
-        columns: prev.columns.map((column) =>
-          column.id === columnId
-            ? {
-                ...column,
-                cardIds: column.cardIds.filter((id) => id !== cardId),
-              }
-            : column
+        columns: prev.columns.map((col) =>
+          col.id === columnId
+            ? { ...col, cardIds: col.cardIds.filter((id) => id !== cardId) }
+            : col
         ),
       };
-      persistBoard(nextBoard);
+      persistBoard(nextBoard, activeBoardId);
       return nextBoard;
     });
   };
@@ -205,16 +193,20 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
   return (
-    <div className="relative overflow-hidden">
-      <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
-      <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
+    // Use h-screen + overflow-hidden on this wrapper so the page never scrolls —
+    // all scrolling happens inside the columns. This prevents the AI sidebar's
+    // scrollIntoView from shifting the header off-screen.
+    <div className="flex h-screen flex-col overflow-hidden">
+      {/* Decorative radial gradients — pointer-events-none so they don't block clicks */}
+      <div className="pointer-events-none fixed left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)] z-0" />
+      <div className="pointer-events-none fixed bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)] z-0" />
 
-      <main className="relative mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-6 pb-6 pt-5">
-        {/* Compact single-row header */}
-        <header className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--stroke)] bg-white/80 px-5 py-3 shadow-[var(--shadow)] backdrop-blur">
+      <div className="relative z-10 mx-auto flex h-full w-full max-w-[1600px] flex-col gap-4 px-6 pb-6 pt-5">
+        {/* ── Header ── */}
+        <header className="flex flex-shrink-0 flex-wrap items-center gap-3 rounded-2xl border border-[var(--stroke)] bg-white/80 px-5 py-3 shadow-[var(--shadow)] backdrop-blur">
+          {/* Logo + title */}
           <div className="flex items-center gap-3">
-            {/* Logo mark */}
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--navy-dark)]">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--navy-dark)]">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="white" className="h-4 w-4">
                 <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2A1.5 1.5 0 0 1 6 3.5v9A1.5 1.5 0 0 1 4.5 14h-2A1.5 1.5 0 0 1 1 12.5v-9ZM7.5 2A1.5 1.5 0 0 0 6 3.5v5A1.5 1.5 0 0 0 7.5 10h6A1.5 1.5 0 0 0 15 8.5v-5A1.5 1.5 0 0 0 13.5 2h-6Z" />
               </svg>
@@ -224,12 +216,25 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
                 Kanban Studio
               </h1>
               <p className="mt-0.5 text-xs text-[var(--gray-text)]">
-                Single Board Kanban · Zero clutter
+                {username}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* Board tabs */}
+          <div className="flex-1">
+            <BoardSelector
+              username={username}
+              activeBoardId={activeBoardId}
+              onSelectBoard={(id) => {
+                setActiveBoardId(id);
+                setSyncError("");
+              }}
+            />
+          </div>
+
+          {/* Right-side controls */}
+          <div className="flex flex-shrink-0 items-center gap-2">
             {syncError ? (
               <p
                 role="alert"
@@ -265,12 +270,13 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
           </div>
         </header>
 
-        {isLoading ? (
-          <div className="flex flex-1 items-center justify-center py-20">
-            <p className="text-sm font-medium text-[var(--gray-text)]">Loading board...</p>
-          </div>
-        ) : (
-          <div className={`grid flex-1 gap-4 ${aiOpen ? "xl:grid-cols-[minmax(0,1fr)_300px]" : "grid-cols-1"}`}>
+        {/* ── Content area (grows to fill remaining height) ── */}
+        <div className={`grid min-h-0 flex-1 gap-4 ${aiOpen ? "xl:grid-cols-[minmax(0,1fr)_300px]" : "grid-cols-1"}`}>
+          {isLoading || activeBoardId === null ? (
+            <div className="flex flex-1 items-center justify-center py-20">
+              <p className="text-sm font-medium text-[var(--gray-text)]">Loading board...</p>
+            </div>
+          ) : (
             <DndContext
               sensors={sensors}
               collisionDetection={collisionDetection}
@@ -278,7 +284,8 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
             >
-              <section className="grid gap-3 lg:grid-cols-5">
+              {/* Columns scroll horizontally on small screens */}
+              <section className="grid gap-3 overflow-x-auto lg:grid-cols-5" style={{ alignContent: "start" }}>
                 {board.columns.map((column, index) => (
                   <KanbanColumn
                     key={column.id}
@@ -300,17 +307,18 @@ export const KanbanBoard = ({ username, onLogout }: KanbanBoardProps) => {
                 ) : null}
               </DragOverlay>
             </DndContext>
+          )}
 
-            {aiOpen ? (
-              <AIChatSidebar
-                username={username}
-                onBoardUpdate={setBoard}
-                onClose={() => setAiOpen(false)}
-              />
-            ) : null}
-          </div>
-        )}
-      </main>
+          {aiOpen ? (
+            <AIChatSidebar
+              username={username}
+              boardId={activeBoardId ?? undefined}
+              onBoardUpdate={setBoard}
+              onClose={() => setAiOpen(false)}
+            />
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 };
