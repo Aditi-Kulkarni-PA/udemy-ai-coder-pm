@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import clsx from "clsx";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -11,6 +12,7 @@ type KanbanColumnProps = {
   onRename: (columnId: string, title: string) => void;
   onAddCard: (columnId: string, title: string, details: string) => void;
   onDeleteCard: (columnId: string, cardId: string) => void;
+  overCardId?: string | null;
 };
 
 export const KanbanColumn = ({
@@ -19,6 +21,7 @@ export const KanbanColumn = ({
   onRename,
   onAddCard,
   onDeleteCard,
+  overCardId,
 }: KanbanColumnProps) => {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
@@ -50,11 +53,15 @@ export const KanbanColumn = ({
       <div className="mt-4 flex flex-1 flex-col gap-3">
         <SortableContext items={column.cardIds} strategy={verticalListSortingStrategy}>
           {cards.map((card) => (
-            <KanbanCard
-              key={card.id}
-              card={card}
-              onDelete={(cardId) => onDeleteCard(column.id, cardId)}
-            />
+            <Fragment key={card.id}>
+              {overCardId === card.id && (
+                <div className="mx-1 h-0.5 rounded-full bg-[var(--primary-blue)] shadow-[0_0_6px_rgba(32,157,215,0.6)]" />
+              )}
+              <KanbanCard
+                card={card}
+                onDelete={(cardId) => onDeleteCard(column.id, cardId)}
+              />
+            </Fragment>
           ))}
         </SortableContext>
         {cards.length === 0 && (

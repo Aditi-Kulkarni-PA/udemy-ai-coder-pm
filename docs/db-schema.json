@@ -1,0 +1,111 @@
+{
+  "name": "pm_mvp_schema",
+  "version": 1,
+  "database": {
+    "engine": "sqlite",
+    "file": "backend/data/pm.db",
+    "pragma": {
+      "foreign_keys": true
+    }
+  },
+  "tables": [
+    {
+      "name": "users",
+      "description": "Application users (MVP currently logs in with fixed demo credentials).",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "constraints": ["PRIMARY KEY", "AUTOINCREMENT"] },
+        { "name": "username", "type": "TEXT", "constraints": ["NOT NULL", "UNIQUE"] },
+        { "name": "created_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] },
+        { "name": "updated_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] }
+      ],
+      "indexes": [
+        { "name": "idx_users_username", "columns": ["username"], "unique": true }
+      ]
+    },
+    {
+      "name": "boards",
+      "description": "Exactly one board per user in MVP; extensible to many boards later.",
+      "columns": [
+        { "name": "id", "type": "INTEGER", "constraints": ["PRIMARY KEY", "AUTOINCREMENT"] },
+        { "name": "user_id", "type": "INTEGER", "constraints": ["NOT NULL", "UNIQUE", "REFERENCES users(id) ON DELETE CASCADE"] },
+        { "name": "name", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT 'Kanban Board'"] },
+        { "name": "created_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] },
+        { "name": "updated_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] }
+      ],
+      "indexes": [
+        { "name": "idx_boards_user_id", "columns": ["user_id"], "unique": true }
+      ]
+    },
+    {
+      "name": "columns",
+      "description": "Board columns with stable ordering and editable titles.",
+      "columns": [
+        { "name": "id", "type": "TEXT", "constraints": ["PRIMARY KEY"] },
+        { "name": "board_id", "type": "INTEGER", "constraints": ["NOT NULL", "REFERENCES boards(id) ON DELETE CASCADE"] },
+        { "name": "title", "type": "TEXT", "constraints": ["NOT NULL"] },
+        { "name": "position", "type": "INTEGER", "constraints": ["NOT NULL"] },
+        { "name": "created_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] },
+        { "name": "updated_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] }
+      ],
+      "constraints": [
+        { "type": "UNIQUE", "columns": ["board_id", "position"] }
+      ],
+      "indexes": [
+        { "name": "idx_columns_board_position", "columns": ["board_id", "position"], "unique": true }
+      ]
+    },
+    {
+      "name": "cards",
+      "description": "Cards stored in a specific column and ordered within that column.",
+      "columns": [
+        { "name": "id", "type": "TEXT", "constraints": ["PRIMARY KEY"] },
+        { "name": "board_id", "type": "INTEGER", "constraints": ["NOT NULL", "REFERENCES boards(id) ON DELETE CASCADE"] },
+        { "name": "column_id", "type": "TEXT", "constraints": ["NOT NULL", "REFERENCES columns(id) ON DELETE CASCADE"] },
+        { "name": "title", "type": "TEXT", "constraints": ["NOT NULL"] },
+        { "name": "details", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT ''"] },
+        { "name": "position", "type": "INTEGER", "constraints": ["NOT NULL"] },
+        { "name": "created_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] },
+        { "name": "updated_at", "type": "TEXT", "constraints": ["NOT NULL", "DEFAULT CURRENT_TIMESTAMP"] }
+      ],
+      "constraints": [
+        { "type": "UNIQUE", "columns": ["column_id", "position"] }
+      ],
+      "indexes": [
+        { "name": "idx_cards_board_id", "columns": ["board_id"] },
+        { "name": "idx_cards_column_position", "columns": ["column_id", "position"], "unique": true }
+      ]
+    }
+  ],
+  "seed_strategy": {
+    "mvp_defaults": {
+      "user": { "username": "user" },
+      "board": { "name": "Kanban Board" },
+      "columns": [
+        { "id": "col-backlog", "title": "Backlog", "position": 0 },
+        { "id": "col-discovery", "title": "Discovery", "position": 1 },
+        { "id": "col-progress", "title": "In Progress", "position": 2 },
+        { "id": "col-review", "title": "Review", "position": 3 },
+        { "id": "col-done", "title": "Done", "position": 4 }
+      ]
+    }
+  },
+  "board_read_shape": {
+    "columns": [
+      { "id": "string", "title": "string", "cardIds": ["string"] }
+    ],
+    "cards": {
+      "card-id": {
+        "id": "string",
+        "title": "string",
+        "details": "string"
+      }
+    }
+  },
+  "mapping_validation": {
+    "frontend_initial_data_coverage": {
+      "columns_count": 5,
+      "cards_count": 8,
+      "ordering_supported_by": ["columns.position", "cards.position"]
+    }
+  }
+}
