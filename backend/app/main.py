@@ -1,5 +1,6 @@
 import logging
 import os
+import sqlite3
 import time
 from pathlib import Path
 from typing import Annotated
@@ -47,6 +48,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+
+
+def _commit_board(conn: sqlite3.Connection, context: str) -> None:
+    """Commit conn; on failure roll back and raise HTTP 503."""
+    try:
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        logger.error("DB commit failed (%s): %s", context, exc)
+        raise HTTPException(
+            status_code=503, detail="Board save failed. Please try again."
+        ) from exc
 STATIC_DIR = BASE_DIR / "static"
 DB_PATH = BASE_DIR / "data" / "pm.db"
 
@@ -193,19 +206,10 @@ def create_app() -> FastAPI:
         """Save board data for a specific board."""
         try:
             with connect(DB_PATH) as conn:
-                # Verify ownership
                 if get_board_by_id(conn, username, board_id) is None:
                     raise HTTPException(status_code=404, detail="Board not found.")
                 replace_board(conn, board_id, request.board)
-                try:
-                    conn.commit()
-                except Exception as exc:
-                    conn.rollback()
-                    logger.error("DB commit failed for board save (%s/%d): %s", username, board_id, exc)
-                    raise HTTPException(
-                        status_code=503,
-                        detail="Board save failed. Please try again.",
-                    ) from exc
+                _commit_board(conn, f"{username}/{board_id}")
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return {"status": "ok"}
@@ -230,15 +234,7 @@ def create_app() -> FastAPI:
             with connect(DB_PATH) as conn:
                 board_id = ensure_user_board(conn, username)
                 replace_board(conn, board_id, request.board)
-                try:
-                    conn.commit()
-                except Exception as exc:
-                    conn.rollback()
-                    logger.error("DB commit failed for board save (%s): %s", username, exc)
-                    raise HTTPException(
-                        status_code=503,
-                        detail="Board save failed. Please try again.",
-                    ) from exc
+                _commit_board(conn, username)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         logger.info("Board saved: %s", username)
@@ -260,7 +256,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/ai/chat/{username}", response_model=AIChatResponse)
     def ai_chat(username: ValidUsername, request: AIChatRequest) -> AIChatResponse:
-        # Per-username rate limiting
+        # Per-username rate limiting (prune stale entries to prevent unbounded growth)
         now = time.monotonic()
         last = _ai_rate_limit.get(username, 0.0)
         if now - last < _RATE_LIMIT_SECONDS:
@@ -269,6 +265,11 @@ def create_app() -> FastAPI:
                 detail=f"Too many requests. Please wait {_RATE_LIMIT_SECONDS:.0f} seconds between AI requests.",
             )
         _ai_rate_limit[username] = now
+        if len(_ai_rate_limit) > 500:
+            cutoff = now - 60.0
+            stale = [k for k, v in _ai_rate_limit.items() if v < cutoff]
+            for k in stale:
+                del _ai_rate_limit[k]
 
         logger.info("AI chat request: %s — %r", username, request.question[:80])
 
@@ -301,7 +302,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Invalid AI structured output: {error}") from error
 
         board_updated = parsed.board_update is not None
-        if parsed.board_update is not None:
+        if board_updated:
             current_card_ids = set(current_board["cards"].keys())
             ai_card_ids = set(parsed.board_update.cards.keys())
             dropped_ids = current_card_ids - ai_card_ids
@@ -315,17 +316,9 @@ def create_app() -> FastAPI:
             with connect(DB_PATH) as conn:
                 try:
                     replace_board(conn, board_id, parsed.board_update)
-                    try:
-                        conn.commit()
-                    except Exception as exc:
-                        conn.rollback()
-                        logger.error("DB commit failed for AI update (%s): %s", username, exc)
-                        raise HTTPException(
-                            status_code=503,
-                            detail="Board update failed. Please try again.",
-                        ) from exc
                 except ValueError as error:
                     raise HTTPException(status_code=400, detail=f"Invalid board update from AI: {error}") from error
+                _commit_board(conn, f"ai/{username}")
                 current_board = get_board(conn, board_id)
 
         logger.info("AI chat complete: %s boardUpdated=%s", username, board_updated)

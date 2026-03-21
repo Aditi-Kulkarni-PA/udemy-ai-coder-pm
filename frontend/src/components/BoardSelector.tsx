@@ -17,25 +17,25 @@ export const BoardSelector = ({ username, activeBoardId, onSelectBoard }: BoardS
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
 
-  const loadBoards = async () => {
-    try {
-      const list = await fetchBoards(username);
-      setBoards(list);
-      // Auto-select the first board if none is selected
-      if (activeBoardId === null && list.length > 0) {
-        onSelectBoard(list[0].id);
-      }
-    } catch {
-      setError("Failed to load boards.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    void loadBoards();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void (async () => {
+      try {
+        const list = await fetchBoards(username);
+        setBoards(list);
+      } catch {
+        setError("Failed to load boards.");
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   }, [username]);
+
+  // Auto-select the first board once boards load and none is selected
+  useEffect(() => {
+    if (activeBoardId === null && boards.length > 0) {
+      onSelectBoard(boards[0].id);
+    }
+  }, [boards, activeBoardId, onSelectBoard]);
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -45,10 +45,10 @@ export const BoardSelector = ({ username, activeBoardId, onSelectBoard }: BoardS
     setError("");
     try {
       const boardId = await createBoard(username, name);
+      const newBoard: BoardInfo = { id: boardId, name, created_at: new Date().toISOString() };
+      setBoards((prev) => [...prev, newBoard]);
       setNewBoardName("");
       setShowForm(false);
-      const list = await fetchBoards(username);
-      setBoards(list);
       onSelectBoard(boardId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create board.");
@@ -62,7 +62,7 @@ export const BoardSelector = ({ username, activeBoardId, onSelectBoard }: BoardS
     if (!confirm("Delete this board and all its cards?")) return;
     try {
       await deleteBoard(username, boardId);
-      const list = await fetchBoards(username);
+      const list = boards.filter((b) => b.id !== boardId);
       setBoards(list);
       if (activeBoardId === boardId && list.length > 0) {
         onSelectBoard(list[0].id);

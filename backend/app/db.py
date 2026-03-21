@@ -204,6 +204,16 @@ def _get_or_create_user(conn: sqlite3.Connection, username: str) -> int:
     return int(cursor.lastrowid)
 
 
+def _create_default_board(conn: sqlite3.Connection, user_id: int) -> int:
+    """Insert a default seeded board for user_id. Returns board_id."""
+    cursor = conn.execute(
+        "INSERT INTO boards(user_id, name) VALUES (?, ?)", (user_id, "Kanban Board")
+    )
+    board_id = int(cursor.lastrowid)
+    _seed_board(conn, board_id)
+    return board_id
+
+
 def ensure_user_board(conn: sqlite3.Connection, username: str) -> int:
     """Get (or create) the first/default board for a user. Used by legacy routes."""
     user_id = _get_or_create_user(conn, username)
@@ -214,32 +224,24 @@ def ensure_user_board(conn: sqlite3.Connection, username: str) -> int:
     if board_row:
         return int(board_row["id"])
 
-    cursor = conn.execute(
-        "INSERT INTO boards(user_id, name) VALUES (?, ?)", (user_id, "Kanban Board")
-    )
-    board_id = int(cursor.lastrowid)
-    _seed_board(conn, board_id)
-    return board_id
+    return _create_default_board(conn, user_id)
 
 
 def get_user_boards(conn: sqlite3.Connection, username: str) -> list[dict]:
     """Return all boards for a user (creates the user + default board if new)."""
     user_id = _get_or_create_user(conn, username)
 
-    # Auto-create default board if user has none
-    count = conn.execute(
-        "SELECT COUNT(*) AS cnt FROM boards WHERE user_id = ?", (user_id,)
-    ).fetchone()["cnt"]
-    if count == 0:
-        cursor = conn.execute(
-            "INSERT INTO boards(user_id, name) VALUES (?, ?)", (user_id, "Kanban Board")
-        )
-        _seed_board(conn, int(cursor.lastrowid))
-
     rows = conn.execute(
         "SELECT id, name, created_at FROM boards WHERE user_id = ? ORDER BY id ASC",
         (user_id,),
     ).fetchall()
+    if not rows:
+        _create_default_board(conn, user_id)
+        rows = conn.execute(
+            "SELECT id, name, created_at FROM boards WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
+        ).fetchall()
+
     return [{"id": r["id"], "name": r["name"], "created_at": r["created_at"]} for r in rows]
 
 
